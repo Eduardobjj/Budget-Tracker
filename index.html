@@ -455,7 +455,7 @@ function renderGastos(){
     <div class="field"><label>Fecha</label><input type="date" id="exp-date" value="${new Date().toISOString().slice(0,10)}"/></div>
     <div class="grid2" style="margin-bottom:10px">
       <div class="field" style="margin-bottom:0"><label>Categoría</label>
-        <select id="exp-cat" onchange="updateSubs()">${CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('')}</select>
+        <select id="exp-cat">${CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin-bottom:0"><label>Subcategoría</label>
         <select id="exp-sub">${CATS[0].subs.map(s=>`<option>${s}</option>`).join('')}</select>
@@ -548,10 +548,14 @@ let analisisShowPicker = false;
 
 async function loadAllMonths(){
   const snap = await getDocs(collection(db,'presupuesto'));
-  const months = [];
+  const byId = {};
   snap.forEach(d=>{
-    const [y,m] = d.id.split('-').map(Number);
-    months.push({y, m:m-1, d:d.data()});
+    // Keep only one entry per document id (guards against any duplication)
+    byId[d.id] = d.data();
+  });
+  const months = Object.keys(byId).map(id=>{
+    const [y,m] = id.split('-').map(Number);
+    return {y, m:m-1, d:byId[id]};
   });
   months.sort((a,b)=>a.y-b.y||a.m-b.m);
   analisisMonths = months;
@@ -652,10 +656,13 @@ function renderAnalisisTab(){
 
   // Acumulado / Promedio toggle
   const accActive = analisisMode==='acumulado';
-  html += `<div style="display:flex;background:#eaedf5;border-radius:12px;padding:3px;margin-bottom:14px">
+  html += `<div style="display:flex;background:#eaedf5;border-radius:12px;padding:3px;margin-bottom:${analisisMode==='promedio'?'8':'14'}px">
     <button onclick="setAnalisisMode('acumulado')" style="flex:1;background:${accActive?'#fff':'transparent'};border:none;color:${accActive?'#1a1a2e':'#9099b8'};border-radius:9px;padding:8px;font-size:12px;cursor:pointer;font-weight:700;box-shadow:${accActive?'0 1px 4px rgba(0,0,0,0.08)':'none'};transition:all 0.2s">📊 Acumulado</button>
     <button onclick="setAnalisisMode('promedio')" style="flex:1;background:${!accActive?'#fff':'transparent'};border:none;color:${!accActive?'#1a1a2e':'#9099b8'};border-radius:9px;padding:8px;font-size:12px;cursor:pointer;font-weight:700;box-shadow:${!accActive?'0 1px 4px rgba(0,0,0,0.08)':'none'};transition:all 0.2s">📈 Promedio/mes</button>
   </div>`;
+  if(analisisMode==='promedio'){
+    html += `<div style="font-size:10px;color:#9099b8;text-align:center;margin-bottom:14px;letter-spacing:0.5px">Promediando entre <b style="color:#5B8DB8">${nMonths} ${nMonths===1?'mes':'meses'}</b> con datos: ${sel.map(x=>MONTHS[x.m].slice(0,3)).join(', ')}</div>`;
+  }
 
   // Month picker modal
   if(analisisShowPicker){
@@ -719,6 +726,25 @@ function renderAnalisisTab(){
       </div>`;
     });
     html += `</div></div>`;
+
+    // Ingresos trend chart
+    const maxIn = Math.max(...sel.map(x=>(x.d.incomes||[]).reduce((s,i)=>s+toPEN(i.amount,i.moneda),0)),1);
+    html += `<div class="card" style="margin-bottom:14px">
+      <div class="sec-title">Tendencia Mensual — Ingresos</div>
+      <div style="display:flex;align-items:stretch;gap:8px">`;
+    sel.forEach(x=>{
+      const inc=(x.d.incomes||[]).reduce((s,i)=>s+toPEN(i.amount,i.moneda),0);
+      const hIn = Math.max(Math.round((inc/maxIn)*120), inc>0?22:3);
+      html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center">
+        <div style="flex:1;width:100%;display:flex;align-items:flex-end;height:130px;justify-content:center">
+          <div style="width:100%;max-width:44px;background:linear-gradient(180deg,#5BAD92,#3a8a6a);border-radius:8px 8px 0 0;height:${hIn}px;min-height:3px;display:flex;align-items:flex-start;justify-content:center;padding-top:4px">
+            ${inc>0?`<span style="font-size:9px;font-weight:800;color:#fff">${fmtK(inc)}</span>`:''}
+          </div>
+        </div>
+        <div style="width:100%;text-align:center;font-size:9px;font-weight:600;color:#9099b8;padding-top:5px;border-top:1px solid #eaedf5;margin-top:2px">${MONTHS[x.m].slice(0,3)}</div>
+      </div>`;
+    });
+    html += `</div></div>`;
   }
 
   // Pie chart
@@ -767,8 +793,9 @@ function renderAnalisisTab(){
 async function renderAnalisis(){
   if(!analisisLoaded){
     document.getElementById('content').innerHTML = `<div class="empty"><div class="empty-ico" style="animation:spin 1s linear infinite">⟳</div><div style="font-size:13px;margin-top:8px">Cargando datos...</div></div>`;
-    await loadAllMonths();
   }
+  // Always refresh so recent edits are reflected
+  await loadAllMonths();
   renderAnalisisTab();
 }
 
@@ -867,6 +894,14 @@ function render(){
     else if(currentTab==='presupuesto')html=renderPresupuesto();
     else if(currentTab==='cobrar')html=renderCobrar();
     document.getElementById('content').innerHTML=html;
+    // Attach dependent-select listener for gastos (iOS-safe)
+    if(currentTab==='gastos'){
+      const catSel=document.getElementById('exp-cat');
+      if(catSel){
+        catSel.addEventListener('change',updateSubs);
+        updateSubs(); // ensure subs match current category on load
+      }
+    }
   }
 }
 
