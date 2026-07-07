@@ -768,7 +768,7 @@ function renderAnalisisTab(){
     allExp.filter(e=>e.category===cat.id).forEach(e=>{
       subs[e.sub]=(subs[e.sub]||0)+toPEN(e.amount,e.moneda);
     });
-    const topSubs = Object.entries(subs).sort((a,b)=>b[1]-a[1]).slice(0,3);
+    const topSubs = Object.entries(subs).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
     html += `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <div style="display:flex;align-items:center;gap:8px">
@@ -782,7 +782,7 @@ function renderAnalisisTab(){
       </div>
       ${topSubs.map(([s,v])=>`<div style="display:flex;justify-content:space-between;margin-bottom:3px">
         <span style="font-size:11px;color:#9099b8">· ${s}</span>
-        <span style="font-size:11px;color:#5a6080;font-weight:600">S/ ${(v/divisor).toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0})}</span>
+        <span style="font-size:11px;color:#5a6080;font-weight:600">S/ ${(v/divisor).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
       </div>`).join('')}
     </div>`;
   });
