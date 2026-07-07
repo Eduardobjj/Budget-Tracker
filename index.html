@@ -764,9 +764,18 @@ function renderAnalisisTab(){
   byCat.forEach(cat=>{
     const pct = totalSp>0?Math.round((cat.spent/totalSp)*100):0;
     const catDisp = cat.spent/divisor;
+    const catExp = allExp.filter(e=>e.category===cat.id);
     const subs = {};
-    allExp.filter(e=>e.category===cat.id).forEach(e=>{
-      subs[e.sub]=(subs[e.sub]||0)+toPEN(e.amount,e.moneda);
+    // Include every defined subcategory that has spending
+    (cat.subs||[]).forEach(sname=>{
+      const v = catExp.filter(e=>e.sub===sname).reduce((a,e)=>a+toPEN(e.amount,e.moneda),0);
+      if(v>0) subs[sname]=v;
+    });
+    // Also catch any expense whose sub isn't in the current definition (legacy)
+    catExp.forEach(e=>{
+      if(!(cat.subs||[]).includes(e.sub)){
+        subs[e.sub]=(subs[e.sub]||0)+toPEN(e.amount,e.moneda);
+      }
     });
     const topSubs = Object.entries(subs).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
     html += `<div class="card">
@@ -782,12 +791,12 @@ function renderAnalisisTab(){
       </div>
       ${topSubs.map(([s,v])=>`<div style="display:flex;justify-content:space-between;margin-bottom:3px">
         <span style="font-size:11px;color:#9099b8">· ${s}</span>
-        <span style="font-size:11px;color:#5a6080;font-weight:600">S/ ${(v/divisor).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        <span style="font-size:11px;color:#5a6080;font-weight:600">S/ ${(v/divisor).toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0})}</span>
       </div>`).join('')}
     </div>`;
   });
 
-  document.getElementById('content').innerHTML = html;
+  document.getElementById('content').innerHTML = html + '<div style="text-align:center;font-size:9px;color:#c0c8d8;padding:12px 0 4px">v2.1</div>';
 }
 
 async function renderAnalisis(){
