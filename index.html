@@ -165,18 +165,20 @@ const db = getFirestore(app);
 const CATS=[
   {id:"casa",label:"Casa",icon:"🏠",color:"#5B8DB8",subs:["Hipoteca","Luz","Agua","Internet","Servicio Limpieza","Supermercado","Mantenimiento","Otros"]},
   {id:"comida",label:"Comida & Salidas",icon:"🍽️",color:"#E07B54",subs:["Restaurantes","Parrilladas","Alcohol","Otros"]},
-  {id:"movilidad",label:"Movilidad",icon:"🚗",color:"#D4A843",subs:["Crédito Vehicular","Combustible","Peajes","Parqueo","Taxi","Lavado"]},
+  {id:"movilidad",label:"Movilidad",icon:"🚗",color:"#D4A843",subs:["Crédito Vehicular","Combustible","Peajes","Parqueo","Taxi","Lavado","Mantenimiento","Seguros","Otros"]},
   {id:"deporte",label:"Deporte",icon:"💪",color:"#5BAD92",subs:["Suplementos","Gym","Jiu Jitsu","Farmacología","Otros"]},
   {id:"suscripciones",label:"Suscripciones",icon:"📱",color:"#9B6EBF",subs:["Televisión","AI","Música","Otros"]},
   {id:"entretenimiento",label:"Entretenimiento",icon:"🎬",color:"#BF6E8A",subs:["Cine","Otros"]},
   {id:"salud",label:"Salud",icon:"❤️",color:"#C0504D",subs:["Seguros","Terapia Física","Citas & Exámenes","Medicamentos"]},
-  {id:"mascota",label:"Mascota",icon:"🐾",color:"#8B7355",subs:["Comida","Paseador","Veterinario","Otros"]},
+  {id:"mascota",label:"Mascota",icon:"🐾",color:"#8B7355",subs:["Comida","Paseador","Veterinario","Medicinas","Otros"]},
   {id:"telefonos",label:"Teléfonos",icon:"📞",color:"#4A90A4",subs:["Mensualidad","Otros"]},
   {id:"cuidado",label:"Cuidado Personal",icon:"✂️",color:"#C4956A",subs:["Barbería","Peluquería","Depilación","Otros"]},
-  {id:"miscelaneo",label:"Misceláneos",icon:"📦",color:"#7A8A72",subs:["Ropa","Regalos","Otros"]},
-  {id:"inversiones",label:"Inversiones & Ahorros",icon:"📈",color:"#3A9E6A",subs:["Inmobiliaria","Bolsa","Ahorros"]},
+  {id:"miscelaneo",label:"Misceláneos",icon:"📦",color:"#7A8A72",subs:["Gaseosas","Monster","Rehidratantes","Otros"]},
+  {id:"ropa",label:"Ropa",icon:"👕",color:"#D98BA0",subs:["Compra","Arreglos","Lavandería"]},
+  {id:"regalos",label:"Regalos",icon:"🎁",color:"#B87BD9",subs:["Ed & Lu","Cumpleaños","Navidad","Otros"]},
+  {id:"inversiones",label:"Inversiones & Ahorros",icon:"📈",color:"#3A9E6A",subs:["Inmobiliaria","Automóviles","Suplementos","Bolsa","Ahorros"]},
   {id:"viajes",label:"Viajes",icon:"✈️",color:"#5B9EBF",subs:["Pasajes","Movilidad","Restaurantes","Fiesta","Otros"]},
-  {id:"financieros",label:"Gastos Financieros",icon:"🏦",color:"#A0522D",subs:["Préstamos","Seguros","Otros"]},
+  {id:"financieros",label:"Gastos Financieros",icon:"🏦",color:"#A0522D",subs:["Préstamos Personales","Seguros","Otros"]},
 ];
 const INC_CATS=["Sueldo Eduardo","Sueldo Luciana","Dividendos","Otros"];
 const INC_CLR={"Sueldo Eduardo":"#5B8DB8","Sueldo Luciana":"#9B6EBF","Dividendos":"#3A9E6A","Otros":"#7A8A72"};
@@ -355,7 +357,15 @@ window.delIncome=function(id){data.incomes=data.incomes.filter(i=>i.id!==id);sav
 window.updateSubs=function(){
   const cat=CATS.find(c=>c.id===document.getElementById('exp-cat').value);
   const sub=document.getElementById('exp-sub');
-  sub.innerHTML=(cat?.subs||[]).map(s=>`<option>${s}</option>`).join('');
+  // Rebuild options via DOM (more reliable on iOS than innerHTML)
+  while(sub.firstChild) sub.removeChild(sub.firstChild);
+  (cat?.subs||[]).forEach(s=>{
+    const opt=document.createElement('option');
+    opt.textContent=s;
+    opt.value=s;
+    sub.appendChild(opt);
+  });
+  sub.selectedIndex=0;
 };
 
 window.updateBudget=function(id,val){data.budgets[id]=val;saveToFirebase();};
@@ -530,6 +540,7 @@ function renderPresupuesto(){
 
 // ── ANÁLISIS ──────────────────────────────────────────────────────────────────
 let analisisPeriod = '3m';
+let analisisMode = 'acumulado'; // 'acumulado' or 'promedio'
 let analisisMonths = []; // loaded from firebase
 let analisisLoaded = false;
 let analisisSelected = new Set(); // selected individual months as "YYYY-M"
@@ -570,6 +581,7 @@ window.setAnalisisPeriod = function(p){
   if(p==='custom'){ analisisShowPicker=true; renderAnalisisTab(); return; }
   analisisPeriod=p; analisisShowPicker=false; renderAnalisisTab();
 };
+window.setAnalisisMode = function(m){ analisisMode=m; renderAnalisisTab(); };
 window.closePicker = function(){ analisisShowPicker=false; renderAnalisisTab(); };
 window.applyCustom = function(){
   if(analisisSelected.size===0) return;
@@ -598,15 +610,19 @@ function renderAnalisisTab(){
   const allInc = sel.flatMap(x=>(x.d.incomes||[]).map(i=>({...i, _y:x.y, _m:x.m})));
   const totalSp = allExp.reduce((s,e)=>s+toPEN(e.amount,e.moneda),0);
   const totalIn = allInc.reduce((s,i)=>s+toPEN(i.amount,i.moneda),0);
-  const avgSp = sel.length>0 ? totalSp/sel.length : 0;
+  const nMonths = sel.length || 1;
+  // divisor applies in promedio mode
+  const divisor = analisisMode==='promedio' ? nMonths : 1;
+  const dispSp = totalSp/divisor;
+  const dispIn = totalIn/divisor;
 
-  // By category
+  // By category (spent is the raw total; display value depends on mode)
   const byCat = CATS.map(c=>{
     const sp = allExp.filter(e=>e.category===c.id).reduce((s,e)=>s+toPEN(e.amount,e.moneda),0);
     return {...c, spent:sp};
   }).filter(c=>c.spent>0).sort((a,b)=>b.spent-a.spent);
 
-  // Pie data
+  // Pie data (percentages are same regardless of mode)
   const pieData = byCat.map(c=>({name:c.label,value:c.spent,fill:c.color,pct:totalSp>0?Math.round((c.spent/totalSp)*100):0}));
 
   // Monthly trend bars
@@ -633,6 +649,13 @@ function renderAnalisisTab(){
   const customActive = analisisPeriod==='custom';
   html += `<button onclick="setAnalisisPeriod('custom')" style="background:${customActive?'#9B6EBF':'#fff'};border:1.5px solid ${customActive?'#9B6EBF':'#e0e4f0'};color:${customActive?'#fff':'#9099b8'};border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:700">🗓 ${customLabel}</button>`;
   html += `</div>`;
+
+  // Acumulado / Promedio toggle
+  const accActive = analisisMode==='acumulado';
+  html += `<div style="display:flex;background:#eaedf5;border-radius:12px;padding:3px;margin-bottom:14px">
+    <button onclick="setAnalisisMode('acumulado')" style="flex:1;background:${accActive?'#fff':'transparent'};border:none;color:${accActive?'#1a1a2e':'#9099b8'};border-radius:9px;padding:8px;font-size:12px;cursor:pointer;font-weight:700;box-shadow:${accActive?'0 1px 4px rgba(0,0,0,0.08)':'none'};transition:all 0.2s">📊 Acumulado</button>
+    <button onclick="setAnalisisMode('promedio')" style="flex:1;background:${!accActive?'#fff':'transparent'};border:none;color:${!accActive?'#1a1a2e':'#9099b8'};border-radius:9px;padding:8px;font-size:12px;cursor:pointer;font-weight:700;box-shadow:${!accActive?'0 1px 4px rgba(0,0,0,0.08)':'none'};transition:all 0.2s">📈 Promedio/mes</button>
+  </div>`;
 
   // Month picker modal
   if(analisisShowPicker){
@@ -666,37 +689,36 @@ function renderAnalisisTab(){
     return;
   }
 
-  // KPIs
+  // KPIs — labels and values adapt to mode
+  const gLabel = analisisMode==='promedio' ? 'Gasto Prom/mes' : 'Total Gastado';
+  const iLabel = analisisMode==='promedio' ? 'Ingreso Prom/mes' : 'Total Ingresos';
+  const balLabel = analisisMode==='promedio' ? 'Balance Prom/mes' : 'Balance';
+  const dispBal = dispIn - dispSp;
   html += `<div class="grid3" style="margin-bottom:14px">
-    <div class="kpi" style="display:flex;flex-direction:column;justify-content:space-between;min-height:64px"><div class="kpi-label">Total Gastado</div><div class="kpi-value" style="color:#C0504D;font-size:13px">S/ ${totalSp.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
-    <div class="kpi" style="display:flex;flex-direction:column;justify-content:space-between;min-height:64px"><div class="kpi-label">Total Ingresos</div><div class="kpi-value" style="color:#5BAD92;font-size:13px">S/ ${totalIn.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
-    <div class="kpi" style="display:flex;flex-direction:column;justify-content:space-between;min-height:64px"><div class="kpi-label">Gasto Prom/mes</div><div class="kpi-value" style="color:#5B8DB8;font-size:13px">S/ ${avgSp.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+    <div class="kpi" style="display:flex;flex-direction:column;justify-content:space-between;min-height:64px"><div class="kpi-label">${gLabel}</div><div class="kpi-value" style="color:#C0504D;font-size:13px">S/ ${dispSp.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+    <div class="kpi" style="display:flex;flex-direction:column;justify-content:space-between;min-height:64px"><div class="kpi-label">${iLabel}</div><div class="kpi-value" style="color:#5BAD92;font-size:13px">S/ ${dispIn.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+    <div class="kpi" style="display:flex;flex-direction:column;justify-content:space-between;min-height:64px"><div class="kpi-label">${balLabel}</div><div class="kpi-value" style="color:${dispBal>=0?'#5BAD92':'#C0504D'};font-size:13px">S/ ${dispBal.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
   </div>`;
 
-  // Monthly trend
+  // Monthly trend — thicker bars with amount labels
+  const fmtK = (n)=> n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+'k' : Math.round(n).toString();
   if(sel.length>1){
     html += `<div class="card" style="margin-bottom:14px">
-      <div class="sec-title">Tendencia Mensual</div>
-      <div style="display:flex;align-items:stretch;gap:6px">`;
+      <div class="sec-title">Tendencia Mensual — Gastos</div>
+      <div style="display:flex;align-items:stretch;gap:8px">`;
     sel.forEach(x=>{
       const sp=(x.d.expenses||[]).reduce((s,e)=>s+toPEN(e.amount,e.moneda),0);
-      const inc=(x.d.incomes||[]).reduce((s,i)=>s+toPEN(i.amount,i.moneda),0);
-      const hSp = Math.round((sp/maxSp)*110);
-      const hIn = Math.round((inc/maxSp)*110);
+      const hSp = Math.max(Math.round((sp/maxSp)*120), sp>0?22:3);
       html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center">
-        <div style="flex:1;width:100%;display:flex;gap:3px;align-items:flex-end;height:120px;justify-content:center">
-          <div style="width:10px;background:#5BAD92;border-radius:4px 4px 0 0;height:${hIn}px;min-height:3px;flex-shrink:0"></div>
-          <div style="width:10px;background:#C0504D;border-radius:4px 4px 0 0;height:${hSp}px;min-height:3px;flex-shrink:0"></div>
+        <div style="flex:1;width:100%;display:flex;align-items:flex-end;height:130px;justify-content:center">
+          <div style="width:100%;max-width:44px;background:linear-gradient(180deg,#C0504D,#a03d3a);border-radius:8px 8px 0 0;height:${hSp}px;min-height:3px;display:flex;align-items:flex-start;justify-content:center;padding-top:4px">
+            ${sp>0?`<span style="font-size:9px;font-weight:800;color:#fff">${fmtK(sp)}</span>`:''}
+          </div>
         </div>
-        <div style="width:100%;text-align:center;font-size:8px;color:#9099b8;padding-top:4px;border-top:1px solid #eaedf5;margin-top:2px">${MONTHS[x.m].slice(0,3)}</div>
+        <div style="width:100%;text-align:center;font-size:9px;font-weight:600;color:#9099b8;padding-top:5px;border-top:1px solid #eaedf5;margin-top:2px">${MONTHS[x.m].slice(0,3)}</div>
       </div>`;
     });
-    html += `</div>
-      <div style="display:flex;gap:12px;margin-top:6px">
-        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#9099b8"><div style="width:8px;height:8px;border-radius:2px;background:#5BAD92"></div>Ingresos</div>
-        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#9099b8"><div style="width:8px;height:8px;border-radius:2px;background:#C0504D"></div>Gastos</div>
-      </div>
-    </div>`;
+    html += `</div></div>`;
   }
 
   // Pie chart
@@ -710,10 +732,12 @@ function renderAnalisisTab(){
     </div>`;
   }
 
-  // Category ranking
-  html += `<div class="sec-title">Por Categoría</div>`;
+  // Category ranking — respects mode
+  const modeNote = analisisMode==='promedio' ? ' (prom/mes)' : '';
+  html += `<div class="sec-title">Por Categoría${modeNote}</div>`;
   byCat.forEach(cat=>{
     const pct = totalSp>0?Math.round((cat.spent/totalSp)*100):0;
+    const catDisp = cat.spent/divisor;
     const subs = {};
     allExp.filter(e=>e.category===cat.id).forEach(e=>{
       subs[e.sub]=(subs[e.sub]||0)+toPEN(e.amount,e.moneda);
@@ -725,14 +749,14 @@ function renderAnalisisTab(){
           <div style="background:${cat.color}22;border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px">${cat.icon}</div>
           <div><div style="font-size:13px;font-weight:700">${cat.label}</div><div style="font-size:10px;color:#9099b8">${pct}% del total</div></div>
         </div>
-        <div style="font-size:15px;font-weight:800;color:${cat.color}">S/ ${cat.spent.toLocaleString('es-PE',{minimumFractionDigits:0})}</div>
+        <div style="font-size:15px;font-weight:800;color:${cat.color}">S/ ${catDisp.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
       </div>
       <div style="background:#eaedf5;border-radius:6px;height:6px;overflow:hidden;margin-bottom:8px">
         <div style="height:100%;width:${pct}%;background:${cat.color};border-radius:6px;transition:width 0.5s ease"></div>
       </div>
       ${topSubs.map(([s,v])=>`<div style="display:flex;justify-content:space-between;margin-bottom:3px">
         <span style="font-size:11px;color:#9099b8">· ${s}</span>
-        <span style="font-size:11px;color:#5a6080;font-weight:600">S/ ${v.toLocaleString('es-PE',{minimumFractionDigits:0})}</span>
+        <span style="font-size:11px;color:#5a6080;font-weight:600">S/ ${(v/divisor).toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0})}</span>
       </div>`).join('')}
     </div>`;
   });
