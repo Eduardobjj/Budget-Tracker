@@ -174,14 +174,14 @@ const CATS=[
   {id:"telefonos",label:"Teléfonos",icon:"📞",color:"#4A90A4",subs:["Mensualidad","Otros"]},
   {id:"cuidado",label:"Cuidado Personal",icon:"✂️",color:"#C4956A",subs:["Barbería","Peluquería","Depilación","Otros"]},
   {id:"miscelaneo",label:"Misceláneos",icon:"📦",color:"#7A8A72",subs:["Gaseosas","Monster","Rehidratantes","Otros"]},
-  {id:"ropa",label:"Ropa",icon:"👕",color:"#D98BA0",subs:["Compra","Arreglos","Lavandería"]},
+  {id:"ropa",label:"Ropa & Accesorios",icon:"👕",color:"#D98BA0",subs:["Compra","Accesorios","Arreglos","Lavandería"]},
   {id:"regalos",label:"Regalos",icon:"🎁",color:"#B87BD9",subs:["Ed & Lu","Cumpleaños","Navidad","Otros"]},
   {id:"inversiones",label:"Inversiones & Ahorros",icon:"📈",color:"#3A9E6A",subs:["Inmobiliaria","Automóviles","Suplementos","Bolsa","Ahorros"]},
   {id:"viajes",label:"Viajes",icon:"✈️",color:"#5B9EBF",subs:["Pasajes","Movilidad","Restaurantes","Fiesta","Otros"]},
   {id:"financieros",label:"Gastos Financieros",icon:"🏦",color:"#A0522D",subs:["Préstamos Personales","Seguros","Otros"]},
 ];
-const INC_CATS=["Sueldo Eduardo","Sueldo Luciana","Dividendos","Otros"];
-const INC_CLR={"Sueldo Eduardo":"#5B8DB8","Sueldo Luciana":"#9B6EBF","Dividendos":"#3A9E6A","Otros":"#7A8A72"};
+const INC_CATS=["Sueldo Eduardo","Sueldo Luciana","Dividendos","Trading","Intereses","Otros"];
+const INC_CLR={"Sueldo Eduardo":"#5B8DB8","Sueldo Luciana":"#9B6EBF","Dividendos":"#3A9E6A","Trading":"#D4A843","Intereses":"#4A90A4","Otros":"#7A8A72"};
 const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
 let year=new Date().getFullYear(), month=new Date().getMonth();
@@ -493,8 +493,20 @@ function renderIngresos(){
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><div style="width:8px;height:8px;border-radius:50%;background:${INC_CLR[cat]};flex-shrink:0"></div><div style="font-size:10px;color:#9099b8">${cat}</div></div>
       <div style="font-size:16px;font-weight:800;color:${t>0?'#5BAD92':'#2a2a4a'}">S/ ${t.toLocaleString('es-PE',{minimumFractionDigits:2})}</div></div>`;}).join('')}
   </div>
-  <div class="card" style="margin-bottom:18px"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;color:#5a5a8a">Total ingresos del mes</span><span style="font-size:15px;font-weight:800;color:#5BAD92">S/ ${tIn.toLocaleString('es-PE',{minimumFractionDigits:2})}</span></div></div>
-  <div class="card" style="margin-bottom:18px">
+  <div class="card" style="margin-bottom:18px"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;color:#5a5a8a">Total ingresos del mes</span><span style="font-size:15px;font-weight:800;color:#5BAD92">S/ ${tIn.toLocaleString('es-PE',{minimumFractionDigits:2})}</span></div></div>`;
+  // Income distribution pie chart
+  const incPie = INC_CATS.map(cat=>{
+    const v = data.incomes.filter(i=>i.category===cat).reduce((s,i)=>s+toPEN(i.amount,i.moneda),0);
+    return {name:cat, value:v, fill:INC_CLR[cat]||'#5BAD92', pct:tIn>0?Math.round((v/tIn)*100):0};
+  }).filter(d=>d.value>0).sort((a,b)=>b.value-a.value);
+  if(incPie.length){
+    html += `<div class="card" style="margin-bottom:18px">
+      <div class="sec-title">Distribución de Ingresos</div>
+      ${pieChart(incPie)}
+      <div class="legend">${incPie.map(d=>`<div class="legend-item"><div class="legend-dot" style="background:${d.fill}"></div>${d.name} <span style="color:${d.fill};font-weight:700">${d.pct}%</span></div>`).join('')}</div>
+    </div>`;
+  }
+  html += `<div class="card" style="margin-bottom:18px">
     <div class="sec-title">Nuevo Ingreso</div>
     <div class="field"><label>Fecha</label><input type="date" id="inc-date" value="${new Date().toISOString().slice(0,10)}"/></div>
     <div class="field"><label>Categoría</label><select id="inc-cat">${INC_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
