@@ -180,8 +180,8 @@ const CATS=[
   {id:"viajes",label:"Viajes",icon:"✈️",color:"#5B9EBF",subs:["Pasajes","Movilidad","Restaurantes","Fiesta","Otros"]},
   {id:"financieros",label:"Gastos Financieros",icon:"🏦",color:"#A0522D",subs:["Préstamos Personales","Seguros","Otros"]},
 ];
-const INC_CATS=["Sueldo Eduardo","Sueldo Luciana","Dividendos","Trading","Intereses","Otros"];
-const INC_CLR={"Sueldo Eduardo":"#5B8DB8","Sueldo Luciana":"#9B6EBF","Dividendos":"#3A9E6A","Trading":"#D4A843","Intereses":"#4A90A4","Otros":"#7A8A72"};
+const INC_CATS=["Sueldo Eduardo","Sueldo Luciana","Dividendos","Trading","Intereses","Avanta","Supplement House","Otros"];
+const INC_CLR={"Sueldo Eduardo":"#5B8DB8","Sueldo Luciana":"#9B6EBF","Dividendos":"#3A9E6A","Trading":"#D4A843","Intereses":"#4A90A4","Avanta":"#E07B54","Supplement House":"#BF6E8A","Otros":"#7A8A72"};
 const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
 let year=new Date().getFullYear(), month=new Date().getMonth();
@@ -237,7 +237,7 @@ function fmt(n,moneda){
   if(!n&&n!==0)return"—";
   const m=moneda||'PEN';
   const sym=m==='USD'?'$ ':'S/ ';
-  return sym+Number(n).toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2});
+  return sym+Number(n).toLocaleString("es-PE",{minimumFractionDigits:0,maximumFractionDigits:1});
 }
 function toPEN(amount,moneda){return (moneda==='USD'?amount*TC:amount)||0;}
 
@@ -491,9 +491,9 @@ function renderIngresos(){
   let html=`<div class="grid2" style="margin-bottom:14px">
     ${INC_CATS.map(cat=>{const t=data.incomes.filter(i=>i.category===cat).reduce((s,i)=>s+toPEN(i.amount,i.moneda),0);return`<div class="card" style="padding:12px 14px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><div style="width:8px;height:8px;border-radius:50%;background:${INC_CLR[cat]};flex-shrink:0"></div><div style="font-size:10px;color:#9099b8">${cat}</div></div>
-      <div style="font-size:16px;font-weight:800;color:${t>0?'#5BAD92':'#2a2a4a'}">S/ ${t.toLocaleString('es-PE',{minimumFractionDigits:2})}</div></div>`;}).join('')}
+      <div style="font-size:16px;font-weight:800;color:${t>0?'#5BAD92':'#2a2a4a'}">S/ ${t.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:1})}</div></div>`;}).join('')}
   </div>
-  <div class="card" style="margin-bottom:18px"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;color:#5a5a8a">Total ingresos del mes</span><span style="font-size:15px;font-weight:800;color:#5BAD92">S/ ${tIn.toLocaleString('es-PE',{minimumFractionDigits:2})}</span></div></div>`;
+  <div class="card" style="margin-bottom:18px"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;color:#5a5a8a">Total ingresos del mes</span><span style="font-size:15px;font-weight:800;color:#5BAD92">S/ ${tIn.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:1})}</span></div></div>`;
   // Income distribution pie chart
   const incPie = INC_CATS.map(cat=>{
     const v = data.incomes.filter(i=>i.category===cat).reduce((s,i)=>s+toPEN(i.amount,i.moneda),0);
@@ -540,7 +540,7 @@ function renderPresupuesto(){
     html+=`<div class="budget-row">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:18px">${cat.icon}</span>
-        <div><div style="font-size:13px;font-weight:700">${cat.label}</div>${sp>0?`<div style="font-size:10px;color:#4a4a7a">Gastado: S/ ${sp.toLocaleString('es-PE',{minimumFractionDigits:2})}</div>`:''}</div>
+        <div><div style="font-size:13px;font-weight:700">${cat.label}</div>${sp>0?`<div style="font-size:10px;color:#4a4a7a">Gastado: S/ ${sp.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:1})}</div>`:''}</div>
       </div>
       ${editBudget?`<input class="budget-input" type="number" placeholder="Sin límite" value="${data.budgets[cat.id]||''}" oninput="updateBudget('${cat.id}',this.value)">`
       :`<span style="font-size:14px;font-weight:800;color:${bu?cat.color:'#252540'}">${bu?fmt(bu):'—'}</span>`}
@@ -830,8 +830,8 @@ function renderCobrar(){
 
   // Summary cards
   html += `<div class="grid2" style="margin-bottom:14px">
-    <div class="kpi"><div class="kpi-label">Total en Soles</div><div class="kpi-value" style="color:#D4A843">S/ ${totalPEN.toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
-    <div class="kpi"><div class="kpi-label">Total en Dólares</div><div class="kpi-value" style="color:#5B8DB8">$ ${totalUSD.toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
+    <div class="kpi"><div class="kpi-label">Total en Soles</div><div class="kpi-value" style="color:#D4A843">S/ ${totalPEN.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:1})}</div></div>
+    <div class="kpi"><div class="kpi-label">Total en Dólares</div><div class="kpi-value" style="color:#5B8DB8">$ ${totalUSD.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:1})}</div></div>
   </div>`;
 
   // Form
@@ -867,8 +867,8 @@ function renderCobrar(){
   } else {
     cobrar.forEach(c => {
       const montoFmt = c.moneda === 'USD'
-        ? '$ '+c.monto.toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2})
-        : 'S/ '+c.monto.toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+        ? '$ '+c.monto.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:1})
+        : 'S/ '+c.monto.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:1});
       const color = c.moneda === 'USD' ? '#5B8DB8' : '#D4A843';
       html += `<div class="expense-row">
         <div style="background:#D4A84322;border-radius:10px;width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;margin-right:10px">💳</div>
