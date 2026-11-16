@@ -57,6 +57,12 @@ input,select,button{font-family:'DM Sans',sans-serif}
 .expense-amount{font-size:14px;font-weight:800;flex-shrink:0;color:#1a1a2e}
 .del-btn{background:none;border:none;color:#c8c8d8;cursor:pointer;font-size:15px;padding:3px;margin-left:8px}
 .del-btn:hover{color:#C0504D}
+.sw{width:42px;height:24px;border-radius:13px;background:#d0d5e8;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0;margin-left:10px}
+.sw.on{background:#5BAD92}
+.sw::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,0.25)}
+.sw.on::after{left:20px}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#1a1a2e;color:#fff;font-size:12px;font-weight:600;padding:10px 18px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.25);z-index:2000;opacity:0;pointer-events:none;transition:opacity .25s;max-width:85%;text-align:center}
+#toast.show{opacity:1}
 .chips{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
 .chip{background:#fff;border:1.5px solid #e0e4f0;color:#9099b8;border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
 .empty{text-align:center;color:#c0c8e0;padding:40px 0}
@@ -120,16 +126,17 @@ input,select,button{font-family:'DM Sans',sans-serif}
   </div>
 </div>
 <div class="tooltip" id="tooltip"></div>
+<div id="toast"></div>
 
 <div id="modal-overlay" class="modal-overlay" style="display:none" onclick="closeEditModal(event)">
   <div class="modal" onclick="event.stopPropagation()">
-    <div class="modal-title">✏️ Editar Gasto</div>
+    <div class="modal-title" id="edit-modal-title">✏️ Editar Gasto</div>
     <div class="field"><label>Fecha</label><input type="date" id="edit-date"/></div>
-    <div class="grid2" style="margin-bottom:10px">
+    <div class="grid2" style="margin-bottom:10px" id="edit-cat-row">
       <div class="field" style="margin-bottom:0"><label>Categoría</label>
         <select id="edit-cat" onchange="updateEditSubs()"></select>
       </div>
-      <div class="field" style="margin-bottom:0"><label>Subcategoría</label>
+      <div class="field" style="margin-bottom:0" id="edit-sub-wrap"><label>Subcategoría</label>
         <select id="edit-sub"></select>
       </div>
     </div>
@@ -138,10 +145,15 @@ input,select,button{font-family:'DM Sans',sans-serif}
       <div class="field" style="margin-bottom:0"><label>Monto</label><input type="number" id="edit-amount" placeholder="0.00"/></div>
       <div class="field" style="margin-bottom:0"><label>Moneda</label><select id="edit-moneda"><option value="PEN">🇵🇪 Soles</option><option value="USD">🇺🇸 Dólares</option></select></div>
     </div>
+    <div id="edit-pagado-row" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <label style="font-size:9px;color:#9099b8;text-transform:uppercase;letter-spacing:1.2px">¿Pagado?</label>
+      <div id="edit-pagado-sw" class="sw" onclick="this.classList.toggle('on')"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
       <button class="btn-save" onclick="saveEdit()">Guardar</button>
     </div>
+    <button onclick="deleteCurrent()" style="width:100%;margin-top:10px;background:none;border:none;color:#C0504D;font-size:12px;font-weight:700;cursor:pointer;padding:6px">🗑 Eliminar</button>
   </div>
 </div>
 
@@ -241,6 +253,31 @@ function fmt(n,moneda){
 }
 function toPEN(amount,moneda){return (moneda==='USD'?amount*TC:amount)||0;}
 
+// "Pagado" is just a marker. Legacy items (no 'pagado' field) count as paid.
+function isPaid(e){return e.pagado!==false;}
+function pendienteMes(){return data.expenses.filter(e=>e.pagado===false).reduce((s,e)=>s+toPEN(e.amount,e.moneda),0);}
+
+let toastTimer=null;
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2600);
+}
+
+// Writes an item into the Firebase doc of the month its date belongs to
+// (used when the item's date falls outside the month currently on screen).
+async function routeToMonth(targetId, item, type){
+  const ref=doc(db,'presupuesto',targetId);
+  const snap=await getDoc(ref);
+  const d=snap.exists()?snap.data():{budgets:Object.fromEntries(CATS.map(c=>[c.id,""])),expenses:[],incomes:[],cobrar:[]};
+  const arr=(type==='expense')?(d.expenses||[]):(d.incomes||[]);
+  arr.unshift(item);
+  if(type==='expense')d.expenses=arr; else d.incomes=arr;
+  await setDoc(ref,{...d,updatedAt:Date.now()});
+}
+function monthLabelFromId(id){const[y,m]=id.split('-').map(Number);return MONTHS[m-1]+' '+y;}
+
 function changeMonth(d){
   month+=d;
   if(month<0){month=11;year--;}
@@ -328,26 +365,50 @@ function exportCSV(){
 }
 window.exportCSV=exportCSV;
 
-window.addExpense=function(){
+window.addExpense=async function(){
   const date=document.getElementById('exp-date').value;
   const category=document.getElementById('exp-cat').value;
   const sub=document.getElementById('exp-sub').value;
   const desc=document.getElementById('exp-desc').value.trim();
   const amount=parseFloat(document.getElementById('exp-amount').value);
   const moneda=document.getElementById('exp-moneda').value;
+  const pagado=document.getElementById('exp-pagado-sw').classList.contains('on');
   if(!desc||!amount)return;
-  data.expenses.unshift({id:Date.now(),date,category,sub,desc,amount,moneda});
-  saveToFirebase();render();
+  const item={id:Date.now(),date,category,sub,desc,amount,moneda,pagado};
+  const targetId=date.slice(0,7);
+  if(targetId===docId()){
+    data.expenses.unshift(item);
+    saveToFirebase();render();
+  }else{
+    try{await routeToMonth(targetId,item,'expense');toast('Gasto guardado en '+monthLabelFromId(targetId));}
+    catch(e){toast('Error al guardar el gasto');return;}
+    render();
+  }
 };
 
-window.addIncome=function(){
+window.addIncome=async function(){
   const date=document.getElementById('inc-date').value;
   const category=document.getElementById('inc-cat').value;
   const desc=document.getElementById('inc-desc').value.trim();
   const amount=parseFloat(document.getElementById('inc-amount').value);
   const moneda=document.getElementById('inc-moneda').value;
   if(!desc||!amount)return;
-  data.incomes.unshift({id:Date.now(),date,category,desc,amount,moneda});
+  const item={id:Date.now(),date,category,desc,amount,moneda};
+  const targetId=date.slice(0,7);
+  if(targetId===docId()){
+    data.incomes.unshift(item);
+    saveToFirebase();render();
+  }else{
+    try{await routeToMonth(targetId,item,'income');toast('Ingreso guardado en '+monthLabelFromId(targetId));}
+    catch(e){toast('Error al guardar el ingreso');return;}
+    render();
+  }
+};
+
+window.togglePagado=function(id){
+  const e=data.expenses.find(x=>x.id===id);
+  if(!e)return;
+  e.pagado=(e.pagado===false)?true:false; // legacy/undefined (paid) → pending on first tap
   saveToFirebase();render();
 };
 
@@ -450,7 +511,15 @@ function renderDashboard(){
 }
 
 function renderGastos(){
-  let html=`<div class="card" style="margin-bottom:18px">
+  const pend=pendienteMes();
+  let html='';
+  if(pend>0){
+    html+=`<div class="card" style="margin-bottom:14px;background:#fff8e6;border-color:#f0d890;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:12px;font-weight:700;color:#c8861a">💳 Pendiente de pagar</span>
+      <span style="font-size:16px;font-weight:800;color:#c8861a">S/ ${pend.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:1})}</span>
+    </div>`;
+  }
+  html+=`<div class="card" style="margin-bottom:18px">
     <div class="sec-title">Nuevo Gasto</div>
     <div class="field"><label>Fecha</label><input type="date" id="exp-date" value="${new Date().toISOString().slice(0,10)}"/></div>
     <div class="grid2" style="margin-bottom:10px">
@@ -466,21 +535,26 @@ function renderGastos(){
       <div class="field" style="margin-bottom:0"><label>Monto</label><input type="number" id="exp-amount" placeholder="0.00" onkeydown="if(event.key==='Enter')addExpense()"/></div>
       <div class="field" style="margin-bottom:0"><label>Moneda</label><select id="exp-moneda"><option value="PEN">🇵🇪 Soles</option><option value="USD">🇺🇸 Dólares</option></select></div>
     </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <label style="font-size:9px;color:#9099b8;text-transform:uppercase;letter-spacing:1.2px">¿Ya está pagado?</label>
+      <div id="exp-pagado-sw" class="sw" onclick="this.classList.toggle('on')"></div>
+    </div>
     <button class="btn btn-blue" onclick="addExpense()">+ Registrar Gasto</button>
   </div>
   <div class="chips">
     <button class="chip" style="${filterCat==='all'?'background:#5B8DB8;border-color:#5B8DB8;color:#fff':''}" onclick="setFilter('all')">Todos</button>
     ${CATS.map(c=>`<button class="chip" style="${filterCat===c.id?`background:${c.color};border-color:${c.color};color:#fff`:''}" onclick="setFilter('${c.id}')">${c.icon}</button>`).join('')}
   </div>`;
-  const filtered=data.expenses.filter(e=>filterCat==='all'||e.category===filterCat);
+  const filtered=data.expenses.filter(e=>filterCat==='all'||e.category===filterCat)
+    .slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.id-a.id));
   if(!filtered.length)html+=`<div class="empty"><div class="empty-ico">💳</div><div style="font-size:13px">Sin gastos registrados</div></div>`;
   else filtered.forEach(e=>{
     const c=CATS.find(x=>x.id===e.category)||{icon:'📦',color:'#555'};
     html+=`<div class="expense-row" style="cursor:pointer" onclick="openEditModal(${e.id})">
       <div class="expense-icon" style="background:${c.color}22">${c.icon}</div>
       <div style="flex:1;min-width:0"><div class="expense-desc">${e.desc}</div><div class="expense-sub">${e.date} · ${e.sub}</div></div>
-      <span class="expense-amount" style="color:${e.moneda==='USD'?'#5B8DB8':'#e0e0ee'}">${fmt(e.amount,e.moneda)}</span>
-      <button class="del-btn" onclick="event.stopPropagation();delExpense(${e.id})">✕</button>
+      <span class="expense-amount" style="color:${e.moneda==='USD'?'#5B8DB8':'#1a1a2e'}">${fmt(e.amount,e.moneda)}</span>
+      <div class="sw${isPaid(e)?' on':''}" onclick="event.stopPropagation();togglePagado(${e.id})"></div>
     </div>`;
   });
   return html;
@@ -518,12 +592,11 @@ function renderIngresos(){
     <button class="btn btn-green" onclick="addIncome()">+ Registrar Ingreso</button>
   </div>`;
   if(!data.incomes.length)html+=`<div class="empty"><div class="empty-ico">💰</div><div style="font-size:13px">Sin ingresos registrados</div></div>`;
-  else data.incomes.forEach(i=>{
-    html+=`<div class="expense-row">
+  else data.incomes.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.id-a.id)).forEach(i=>{
+    html+=`<div class="expense-row" style="cursor:pointer" onclick="openIncomeModal(${i.id})">
       <div style="width:10px;height:10px;border-radius:50%;background:${INC_CLR[i.category]||'#5BAD92'};flex-shrink:0;margin-right:10px"></div>
       <div style="flex:1;min-width:0"><div class="expense-desc">${i.desc}</div><div class="expense-sub">${i.date} · ${i.category}</div></div>
       <span class="expense-amount" style="color:#5BAD92">${fmt(i.amount,i.moneda)}</span>
-      <button class="del-btn" onclick="delIncome(${i.id})">✕</button>
     </div>`;
   });
   return html;
@@ -927,22 +1000,42 @@ function render(){
 }
 
 let editingId = null;
+let editingType = 'expense';
 
 window.openEditModal = function(id) {
   const e = data.expenses.find(x => x.id === id);
   if (!e) return;
-  editingId = id;
+  editingId = id; editingType = 'expense';
+  document.getElementById('edit-modal-title').textContent = '✏️ Editar Gasto';
+  document.getElementById('edit-sub-wrap').style.display = '';
+  document.getElementById('edit-pagado-row').style.display = 'flex';
   document.getElementById('edit-date').value = e.date;
   document.getElementById('edit-desc').value = e.desc;
   document.getElementById('edit-amount').value = e.amount;
-  // Populate category select
   const catSel = document.getElementById('edit-cat');
+  catSel.setAttribute('onchange','updateEditSubs()');
   catSel.innerHTML = CATS.map(c => `<option value="${c.id}"${c.id===e.category?' selected':''}>${c.icon} ${c.label}</option>`).join('');
-  // Populate sub select
   const cat = CATS.find(c => c.id === e.category);
-  const subSel = document.getElementById('edit-sub');
-  subSel.innerHTML = (cat?.subs||[]).map(s => `<option${s===e.sub?' selected':''}>${s}</option>`).join('');
+  document.getElementById('edit-sub').innerHTML = (cat?.subs||[]).map(s => `<option${s===e.sub?' selected':''}>${s}</option>`).join('');
   document.getElementById('edit-moneda').value = e.moneda||'PEN';
+  document.getElementById('edit-pagado-sw').classList.toggle('on', isPaid(e));
+  document.getElementById('modal-overlay').style.display = 'flex';
+};
+
+window.openIncomeModal = function(id) {
+  const i = data.incomes.find(x => x.id === id);
+  if (!i) return;
+  editingId = id; editingType = 'income';
+  document.getElementById('edit-modal-title').textContent = '✏️ Editar Ingreso';
+  document.getElementById('edit-sub-wrap').style.display = 'none';
+  document.getElementById('edit-pagado-row').style.display = 'none';
+  document.getElementById('edit-date').value = i.date;
+  document.getElementById('edit-desc').value = i.desc;
+  document.getElementById('edit-amount').value = i.amount;
+  const catSel = document.getElementById('edit-cat');
+  catSel.removeAttribute('onchange');
+  catSel.innerHTML = INC_CATS.map(c => `<option${c===i.category?' selected':''}>${c}</option>`).join('');
+  document.getElementById('edit-moneda').value = i.moneda||'PEN';
   document.getElementById('modal-overlay').style.display = 'flex';
 };
 
@@ -960,21 +1053,57 @@ window.closeEditModal = function(e) {
   if (e.target.id === 'modal-overlay') closeModal();
 };
 
-window.saveEdit = function() {
-  const idx = data.expenses.findIndex(x => x.id === editingId);
-  if (idx === -1) return;
-  data.expenses[idx] = {
-    ...data.expenses[idx],
-    date: document.getElementById('edit-date').value,
-    category: document.getElementById('edit-cat').value,
-    sub: document.getElementById('edit-sub').value,
-    desc: document.getElementById('edit-desc').value.trim(),
-    amount: parseFloat(document.getElementById('edit-amount').value),
-    moneda: document.getElementById('edit-moneda').value,
-  };
-  saveToFirebase();
-  closeModal();
-  render();
+window.deleteCurrent = function() {
+  if(editingType==='expense') data.expenses = data.expenses.filter(x=>x.id!==editingId);
+  else data.incomes = data.incomes.filter(x=>x.id!==editingId);
+  saveToFirebase(); closeModal(); render();
+};
+
+window.saveEdit = async function() {
+  const newDate = document.getElementById('edit-date').value;
+  const newMoneda = document.getElementById('edit-moneda').value;
+  const newDesc = document.getElementById('edit-desc').value.trim();
+  const newAmount = parseFloat(document.getElementById('edit-amount').value);
+  const targetId = newDate.slice(0,7);
+  const moved = targetId !== docId();
+
+  if(editingType==='expense'){
+    const idx = data.expenses.findIndex(x => x.id === editingId);
+    if (idx === -1) return;
+    const updated = {
+      ...data.expenses[idx],
+      date:newDate,
+      category: document.getElementById('edit-cat').value,
+      sub: document.getElementById('edit-sub').value,
+      desc:newDesc, amount:newAmount, moneda:newMoneda,
+      pagado: document.getElementById('edit-pagado-sw').classList.contains('on'),
+    };
+    if(!moved){
+      data.expenses[idx]=updated; saveToFirebase(); closeModal(); render();
+    }else{
+      data.expenses=data.expenses.filter(x=>x.id!==editingId);
+      try{await routeToMonth(targetId,updated,'expense'); saveToFirebase();
+        closeModal(); render(); toast('Gasto movido a '+monthLabelFromId(targetId));}
+      catch(err){toast('Error al mover el gasto');}
+    }
+  }else{
+    const idx = data.incomes.findIndex(x => x.id === editingId);
+    if (idx === -1) return;
+    const updated = {
+      ...data.incomes[idx],
+      date:newDate,
+      category: document.getElementById('edit-cat').value,
+      desc:newDesc, amount:newAmount, moneda:newMoneda,
+    };
+    if(!moved){
+      data.incomes[idx]=updated; saveToFirebase(); closeModal(); render();
+    }else{
+      data.incomes=data.incomes.filter(x=>x.id!==editingId);
+      try{await routeToMonth(targetId,updated,'income'); saveToFirebase();
+        closeModal(); render(); toast('Ingreso movido a '+monthLabelFromId(targetId));}
+      catch(err){toast('Error al mover el ingreso');}
+    }
+  }
 };
 
 </script>
